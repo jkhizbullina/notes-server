@@ -1,4 +1,5 @@
 const express = require("express")();
+const crypto = require('node:crypto');
 const http = require("http").Server(express);
 const fs = require("fs");
 const socketio = require("socket.io")(http, {
@@ -13,52 +14,66 @@ let notes = [];
 let userID = "-1";
 
 socketio.on("connection", (socket) => {
-    socket.on("login", ({ user, pass}) => {
-      fs.readFile(file, 'utf-8', (err, data) => {
+    socket.on("login", (name, pass) => {
+      fs.readFile(userFile, 'utf-8', (err, data) => {
         if (err) {
           console.error(err);
           return;
         }
         let users = JSON.parse(data);
-        if (users.includes(element => element.username == user && element.password == pass)) {
-          let user = users.find(element => element.username == user && element.password == pass);
-          userID = user.id;
+        try {
+          let oldUser = users.find(element => element.username === name && element.password == pass);
+          userID = oldUser.id;
+          socketio.emit("userConfirmation", true);
+        }
+        catch {
+          console.log("user not found");
+          socketio.emit("userConfirmation", false);
         }
       });
     });
 
+    socket.on("confirmUser", () => {
+      let confirmed = true;
+      if (userID == "-1") {
+        confirmed = false;
+      }
+      socketio.emit("userConfirmation", confirmed);
+    }) 
+
     socket.on("logout", () => {
       userID = "-1";
       notes = [];
+      socketio.emit("logoutConfirmed");
     });
 
-    socket.on("reg", ({ name, pass, first, last, mail}) => {
+    socket.on("reg", (name, pass, first, last, mail) => {
       let user = {
         username: name,
         password: pass,
         first_name: first,
         last_name: last,
         email: mail,
-        id: crypto.randomUUID
+        id: crypto.randomUUID()
       };
       
       let users = [];
-      fs.readFile(userFile, 'utf-8', (err, data) => {
+      fs.readFile(userFile, 'utf-8', (err, oldData) => {
         if (err) {
           console.error(err);
           return;
         }
-        users = JSON.parse(data);
+        users = JSON.parse(oldData);
+        users.push(user);
+        let data = JSON.stringify(users);
+        fs.writeFile(userFile, data, 'utf-8', err => {
+          if (err) {
+            console.error(err);
+            return;
+          }
+        });
       });
-
-      users.push(user);
-      let data = JSON.stringify(users);
-      fs.writeFile(file, data, 'utf-8', err => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-      });
+    
     });
 
     socket.on("fetchNotes", () => {
@@ -71,7 +86,7 @@ socketio.on("connection", (socket) => {
           return;
         }
         notes = JSON.parse(data);
-        socketio.emit("notelist", notes);
+        socketio.emit("noteslist", notes);
       });
     });
 
